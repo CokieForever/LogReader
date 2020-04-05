@@ -38,7 +38,7 @@ from queue import Queue, Empty
 from threading import Thread
 from tkinter import ttk
 
-from util import optionMenu, button, label, scrolledText, checkButton, entry, findAll
+from app.util import optionMenu, button, label, scrolledText, checkButton, entry, findAll
 
 SEARCH_TAG = "Search"
 FILTER_TAG = "Filter"

@@ -21,23 +21,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-"""A small application to visualize log files."""
+"""Test module."""
 
 __author__ = "Quoc-Nam Dessoulles"
 __email__ = "cokie.forever@gmail.com"
 __license__ = "MIT"
-
-import tkinter as tk
-
-from app.app import Application
-
-
-def main():
-    oTkRoot = tk.Tk()
-    oTkRoot.minsize(850, 480)
-    oApp = Application(oMaster=oTkRoot)
-    oApp.mainloop()
-
-
-if __name__ == "__main__":
-    main()

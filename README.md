@@ -10,6 +10,10 @@ written.
 Log levels are displayed in different colors. It is possible to filter by log level or regular expression. A small
 search function is also implemented.
 
+## Usage
+
+`pythonw main.pyw`
+
 ## Development status
 
 The application is still being built. Therefore all functionalities may not be available / implemented yet.
