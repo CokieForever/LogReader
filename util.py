@@ -141,25 +141,6 @@ def scrolledText(oRoot, sInitValue=None):
     return oScrolledText
 
 
-class ScrolledText(tk.Text):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        xscrollbar = Scrollbar(master, orient=HORIZONTAL)
-        xscrollbar.pack(side=BOTTOM, fill=X)
-
-        yscrollbar = Scrollbar(master)
-        yscrollbar.pack(side=RIGHT, fill=Y)
-
-        text = Text(master, wrap=NONE,
-                    xscrollcommand=xscrollbar.set,
-                    yscrollcommand=yscrollbar.set)
-        text.pack()
-
-        xscrollbar.config(command=text.xview)
-        yscrollbar.config(command=text.yview)
-
-
 def findAll(sText, sExpr):
     iLen = len(sExpr)
     iStart = 0
