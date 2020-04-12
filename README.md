@@ -1,3 +1,7 @@
+![](https://img.shields.io/github/pipenv/locked/python-version/CokieForever/LogReader)
+![](https://img.shields.io/github/license/CokieForever/LogReader)
+![](https://img.shields.io/github/workflow/status/CokieForever/LogReader/Build)
+
 # Log Reader
 
 A small application to visualize log files.
