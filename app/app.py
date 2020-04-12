@@ -41,6 +41,7 @@ from tkinter import ttk
 from app.util import optionMenu, button, label, scrolledText, checkButton, entry, findAll
 
 SEARCH_TAG = "Search"
+CURRENT_SEARCH_TAG = "CurrentSearch"
 FILTER_TAG = "Filter"
 
 
@@ -76,20 +77,25 @@ class Pattern:
         self.iLen = len(sPattern)
 
     def matches(self, sText):
-        return not self.sPattern or bool(self.getAllMatches(sText))
+        return not self.sPattern or self.getFirstMatch(sText) is not None
+
+    def getFirstMatch(self, sText):
+        return next(self.getAllMatches(sText), None)
 
     def getAllMatches(self, sText):
         if not self.sPattern:
-            return []
+            return
         if self.bRegex:
             if self.oRegex is None:
                 try:
                     self.oRegex = re.compile(self.sPattern)
                 except Exception:
-                    return []
-            return [(m.start(), m.end()) for m in self.oRegex.finditer(sText)]
+                    return
+            for m in self.oRegex.finditer(sText):
+                yield m.start(), m.end()
         else:
-            return [(i, i + self.iLen) for i in findAll(sText.lower(), self.sPattern.lower())]
+            for i in findAll(sText.lower(), self.sPattern.lower()):
+                yield i, i + self.iLen
 
 
 class Application(ttk.Frame):
@@ -101,7 +107,8 @@ class Application(ttk.Frame):
         self.oHorizontalScrollbar = None
         self.lExpressions = []
         self.oSearchRegexVar = None
-        self.oSearchEntryVar = None
+        self.oSearchEntry = None
+        self.lCurrentSearchResult = None
         self.oFilterRegexVar = None
         self.oFilterEntryVar = None
         self.bWatchFile = False
@@ -121,6 +128,11 @@ class Application(ttk.Frame):
 
         self.oMaster.protocol("WM_DELETE_WINDOW", lambda *oArgs: self.onClose())
         self.winfo_toplevel().title("Log Reader")
+        self.oMaster.bind("<F3>", lambda _: self.goToNextSearchResult(bBackwards=False))
+        self.oMaster.bind("<Shift-F3>", lambda _: self.goToNextSearchResult(bBackwards=True))
+        self.oMaster.bind("<Control-f>", lambda _: self.onControlF())
+        self.oMaster.bind("<Control-o>", lambda _: self.onChooseSourceButtonClicked())
+
         self.pack(fill=tk.BOTH, expand=True)
         self.createWidgets()
         self.startQueueProcessing()
@@ -131,7 +143,7 @@ class Application(ttk.Frame):
 
     @property
     def oSearchPattern(self):
-        return Pattern(self.oSearchEntryVar.get(), self.oSearchRegexVar.get())
+        return Pattern(self.oSearchEntry.oStringVar.get(), self.oSearchRegexVar.get())
 
     def createWidgets(self):
         oSourceArea = ttk.Frame(self, relief=tk.RAISED, borderwidth=1)
@@ -167,12 +179,11 @@ class Application(ttk.Frame):
         checkButton(oSearchArea, "Wrap lines", bChecked=False, xCallback=lambda b: self.setWrapLines(b)) \
             .pack(side=tk.LEFT, padx=5)
         oSearchRegexButton = checkButton(oSearchArea, "Regex", bChecked=True,
-                                         xCallback=lambda _: self.updateHighlighting())
+                                         xCallback=lambda _: self.onSearchQueryUpdated())
         self.oSearchRegexVar = oSearchRegexButton.oBoolVar
         oSearchRegexButton.pack(side=tk.RIGHT, padx=5)
-        oSearchEntry = entry(oSearchArea, iWidth=50, xCallback=lambda _: self.updateHighlighting())
-        self.oSearchEntryVar = oSearchEntry.oStringVar
-        oSearchEntry.pack(side=tk.RIGHT, padx=5)
+        self.oSearchEntry = entry(oSearchArea, iWidth=50, xCallback=lambda _: self.onSearchQueryUpdated())
+        self.oSearchEntry.pack(side=tk.RIGHT, padx=5)
         label(oSearchArea, "Search: ").pack(side=tk.RIGHT, padx=5)
 
         oLeftButtonsArea = ttk.Frame(self, relief=tk.RAISED, borderwidth=1)
@@ -181,9 +192,10 @@ class Application(ttk.Frame):
 
         self.oPauseResumeButton = button(oLeftButtonsArea, "Pause", xCallback=lambda: self.onPauseResumeButtonClicked())
         self.oPauseResumeButton.pack(side=tk.TOP, pady=(5, 0))
-        button(oLeftButtonsArea, "Clear", xCallback=lambda: self.onClearButtonClicked()).pack(side=tk.TOP)
-        button(oLeftButtonsArea, "Reload", xCallback=lambda: self.onReloadButtonClicked()).pack(side=tk.TOP)
-        button(oLeftButtonsArea, "Go to bottom", xCallback=lambda: self.onGoToBottomButtonClicked()).pack(side=tk.TOP)
+        button(oLeftButtonsArea, "Clear", xCallback=lambda: self.clearLog()).pack(side=tk.TOP)
+        button(oLeftButtonsArea, "Reload", xCallback=lambda: self.startFileWatch(self.lRecentSourceFiles[0])) \
+            .pack(side=tk.TOP)
+        button(oLeftButtonsArea, "Go to bottom", xCallback=lambda: self.scrollToBottom()).pack(side=tk.TOP)
 
         oLogArea = ttk.Frame(self)
         oLogArea.grid(row=3, column=1, sticky=tk.N + tk.E + tk.W + tk.S)
@@ -211,6 +223,11 @@ class Application(ttk.Frame):
         self.stopFileWatch()
         self.oMaster.destroy()
 
+    def onControlF(self):
+        self.oSearchEntry.focus_set()
+        self.oSearchEntry.select_range(0, tk.END)
+        self.oSearchEntry.icursor(tk.END)
+
     def onChooseSourceButtonClicked(self):
         sNewSourceFilePath = tk.filedialog.askopenfilename()
         if sNewSourceFilePath:
@@ -220,14 +237,40 @@ class Application(ttk.Frame):
         self.bProcessQueue = not self.bProcessQueue
         self.oPauseResumeButton.config(text="Pause" if self.bProcessQueue else "Resume")
 
-    def onClearButtonClicked(self):
-        self.clearLog()
+    def onSearchQueryUpdated(self):
+        self.updateHighlighting()
+        self.lCurrentSearchResult = None
+        self.goToNextSearchResult()
 
-    def onReloadButtonClicked(self):
-        self.startFileWatch(self.lRecentSourceFiles[0])
+    def goToNextSearchResult(self, bBackwards=False):
+        if self.lCurrentSearchResult is None:
+            sIndex = self.oLogTextArea.index("@0,%d" % self.oLogTextArea.winfo_height()) if bBackwards \
+                else self.oLogTextArea.index("@0,0")
+            lSearchPos = tuple(map(int, sIndex.split(".")))
+        else:
+            lSearchPos = self.lCurrentSearchResult[0 if bBackwards else 1]
 
-    def onGoToBottomButtonClicked(self):
-        self.scrollToBottom()
+        lBestStartPos, lBestEndPos = None, None
+        oIter = iter(tuple(map(int, oIdx.string.split("."))) for oIdx in self.oLogTextArea.tag_ranges(SEARCH_TAG))
+        for lStartPos, lEndPos in zip(*[oIter] * 2):
+            if lBestStartPos is None:
+                lBestStartPos, lBestEndPos = lStartPos, lEndPos
+            elif bBackwards:
+                if lBestStartPos < lStartPos < lSearchPos or lStartPos < lSearchPos <= lBestStartPos \
+                        or lSearchPos <= lBestStartPos < lStartPos:
+                    lBestStartPos, lBestEndPos = lStartPos, lEndPos
+            else:
+                if lSearchPos <= lStartPos < lBestStartPos or lBestStartPos < lSearchPos <= lStartPos \
+                        or lStartPos < lBestStartPos < lSearchPos:
+                    lBestStartPos, lBestEndPos = lStartPos, lEndPos
+
+        self.oLogTextArea.tag_delete(CURRENT_SEARCH_TAG)
+        if lBestStartPos is not None:
+            self.lCurrentSearchResult = lBestStartPos, lBestEndPos
+            sStartIdx, sEndIdx = ".".join(map(str, lBestStartPos)), ".".join(map(str, lBestEndPos))
+            self.oLogTextArea.see(sStartIdx)
+            self.oLogTextArea.tag_config(CURRENT_SEARCH_TAG, background="green", foreground="white")
+            self.oLogTextArea.tag_add(CURRENT_SEARCH_TAG, sStartIdx, sEndIdx)
 
     def startQueueProcessing(self):
         def doProcess():
@@ -352,19 +395,20 @@ class Application(ttk.Frame):
         self.updateLogWidget()
 
     def updateHighlighting(self, iStartIdx=0):
-        lNewExprs = self.lExpressions[iStartIdx:]
+        lNewExprs = list(filter(lambda e: e.bDisplay,  self.lExpressions[iStartIdx:]))
+        lTagNames = self.oLogTextArea.tag_names()
 
         oFilterPattern = self.oFilterPattern
-        if lNewExprs:
+        if lNewExprs and FILTER_TAG in lTagNames:
             self.oLogTextArea.tag_remove(FILTER_TAG, lNewExprs[0].sStartIdx, lNewExprs[-1].sEndIdx)
         self.oLogTextArea.tag_config(FILTER_TAG, foreground="white", background="red")
 
         oSearchPattern = self.oSearchPattern
-        if lNewExprs:
+        if lNewExprs and SEARCH_TAG in lTagNames:
             self.oLogTextArea.tag_remove(SEARCH_TAG, lNewExprs[0].sStartIdx, lNewExprs[-1].sEndIdx)
         self.oLogTextArea.tag_config(SEARCH_TAG, foreground="white", background="blue")
 
-        for oExpr in filter(lambda o: o.bDisplay, lNewExprs):
+        for oExpr in lNewExprs:
             for iStartIdx, iEndIdx in oSearchPattern.getAllMatches(oExpr.sText):
                 self.oLogTextArea.tag_add(SEARCH_TAG, "%s+%dc" % (oExpr.sStartIdx, iStartIdx),
                                           "%s+%dc" % (oExpr.sStartIdx, iEndIdx))

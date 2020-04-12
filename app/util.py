@@ -113,11 +113,7 @@ def entry(oRoot, sInitValue=None, iWidth=None, xCallback=None, bOnlyOnEnterPress
         oEntry = ttk.Entry(oRoot, textvariable=oStringVar)
 
     if bOnlyOnEnterPress:
-        def onPress(oKey):
-            if oKey.char in ["\n", "\r"]:
-                xCallback(oStringVar.get())
-
-        oEntry.bind("<Key>", onPress)
+        oEntry.bind("<Return>", lambda _: xCallback(oStringVar.get()))
 
     # Keeping a reference is important to prevent garbage collection
     oEntry.oStringVar = oStringVar
